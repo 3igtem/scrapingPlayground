@@ -1,3 +1,4 @@
+import time
 import json
 import re
 import pandas as pd
@@ -6,7 +7,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-def get_movies_by_year(minimun_rate, movie_year_start, movie_rating_count, csv_filename, batch_size):
+def get_movies_by_year(minimun_rate, movie_year_start, movie_rating_count, csv_filename, batch_size, max_reviews_config):
     """Scrapes all movies from IMDb search results for a given year and writes to CSV every `batch_size` movies"""
 
     search_url = f'https://www.imdb.com/search/title/?title_type=feature&release_date={movie_year_start}-01-01,{movie_year_start}-12-31&user_rating={minimun_rate},10&num_votes={movie_rating_count},&sort=alpha,asc'
@@ -22,6 +23,22 @@ def get_movies_by_year(minimun_rate, movie_year_start, movie_rating_count, csv_f
 
     movies_data = []
     movie_count = 0 
+
+    def load_all_movies(driver):
+        while True:
+            try:
+                load_more_button = WebDriverWait(driver, 3).until(
+                    EC.element_to_be_clickable((By.XPATH, '//button[contains(@class, "ipc-see-more__button")]'))
+                )
+                driver.execute_script('arguments[0].scrollIntoView();', load_more_button)
+                driver.execute_script('arguments[0].click();', load_more_button)
+                time.sleep(2)
+                print('[Load More] Clicked button')
+            except:
+                print('[Load More] No more button')
+                break
+    
+    load_all_movies(driver)
 
     while True:
         try:
@@ -66,7 +83,7 @@ def get_movies_by_year(minimun_rate, movie_year_start, movie_rating_count, csv_f
                     movie_info = get_movie_page_details(movie_id)
 
                     # Get Movie Reviews (limit to 10)
-                    movie_reviews = get_movie_reviews(movie_id)
+                    movie_reviews = get_movie_reviews(movie_id, max_reviews_config)
 
                     # Store all data
                     movies_data.append({'Movie ID': movie_id,
@@ -98,15 +115,6 @@ def get_movies_by_year(minimun_rate, movie_year_start, movie_rating_count, csv_f
                 except Exception as e:
                     print(f'Error retrieving movie details: {e}')
             
-            # Check for "Load More" button
-            try:
-                load_more_button = driver.find_element(By.XPATH, '//button[contains(@class, "ipc-see-more__button")]')
-                load_more_button.click()
-                WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME, 'ipc-metadata-list-summary-item')))
-            except:
-                print(f' - Finished scraping movies for year {movie_year_start}')
-                break
-
         except Exception as e:
             print(f'Error loading movie list: {e}')
             break
@@ -127,7 +135,7 @@ def get_movie_page_details(movie_id):
     driver = webdriver.Chrome(options=options)
     driver.get(movie_url)
 
-    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'ipc-chip__text')))
+    WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME, 'ipc-chip__text')))
 
     try:
         # Get Genres
@@ -179,7 +187,7 @@ def get_movie_page_details(movie_id):
         'Movie Language': language
     }
 
-def get_movie_reviews(movie_id):
+def get_movie_reviews(movie_id, max_reviews_config):
     """Extracts up to 10 user reviews for a given movie from IMDb."""
     
     reviews_url = f'https://www.imdb.com/title/{movie_id}/reviews/?sort=num_votes%2Cdesc&spoilers=EXCLUDE'
@@ -188,7 +196,7 @@ def get_movie_reviews(movie_id):
     driver = webdriver.Chrome(options=options)
     driver.get(reviews_url)
 
-    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'sc-7d2e5b85-1')))
+    WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME, 'sc-7d2e5b85-1')))
 
     reviews_data = []
 
@@ -199,7 +207,7 @@ def get_movie_reviews(movie_id):
         # Limit to max 10 reviews
         max_reviews = min(len(review_elements), 10)
 
-        for review in review_elements[:max_reviews]:  # Slice to max 10
+        for review in review_elements[:max_reviews]:
             try:
                 title = review.find_element(By.CLASS_NAME, 'ipc-title__text').text.strip()
             except:
